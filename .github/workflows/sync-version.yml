@@ -1,5 +1,4 @@
 name: Sync Version – wysiwyg-rails
-
 on:
   repository_dispatch:
     types: [version_update]
