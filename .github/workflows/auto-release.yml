@@ -1,3 +1,4 @@
+
 name: Auto Release – wysiwyg-rails
 
 on:
@@ -35,9 +36,7 @@ jobs:
 
       - name: Stop if not a release PR
         if: steps.check.outputs.release == 'false'
-        run: |
-          echo "Not a release PR. Exiting."
-          exit 0
+        run: exit 0
 
       # --------------------------------------------
       # Checkout merged code (full history)
@@ -49,9 +48,9 @@ jobs:
           fetch-depth: 0
 
       # --------------------------------------------
-      # Read version from version.rb
+      # Read & validate version from version.rb
       # --------------------------------------------
-      - name: Read version
+      - name: Read & validate version
         run: |
           VERSION=$(ruby -e "
             content = File.read('lib/wysiwyg-rails/version.rb')
@@ -62,18 +61,13 @@ jobs:
 
           VERSION="${VERSION//,/\.}"
 
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Resolved version: $VERSION"
-
-      # --------------------------------------------
-      # Validate SemVer (strict, fail fast)
-      # --------------------------------------------
-      - name: Validate version format
-        run: |
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid version format: $VERSION"
             exit 1
           fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Resolved version: $VERSION"
 
       # --------------------------------------------
       # Setup Ruby
@@ -91,14 +85,13 @@ jobs:
           gem build wysiwyg-rails.gemspec
 
       # --------------------------------------------
-      # Create GitHub Release (NO auto-generated notes)
+      # Create GitHub Release (PR body → release body)
       # --------------------------------------------
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "rails-v${{ env.VERSION }}"
-          name: "Rails Release v${{ env.VERSION }}"
-          body_path: release_notes.txt
-          files: "*.gem"
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
+        run: |
+          gh release create "rails-v${VERSION}" \
+            --title "Rails Release v${VERSION}" \
+            --notes "${{ github.event.pull_request.body }}" \
+            *.gem
