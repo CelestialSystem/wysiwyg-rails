@@ -38,7 +38,7 @@ jobs:
         run: exit 0
 
       # --------------------------------------------
-      # Checkout merged code (full history)
+      # Checkout merged code
       # --------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
         run: |
-          gh release create "rails-v${VERSION}" \
-            --title "Rails Release v${VERSION}" \
+          gh release create "v${VERSION}" \
+            --title "Release ${VERSION}" \
             --notes "${{ github.event.pull_request.body }}" \
             *.gem
