@@ -1,39 +1,46 @@
 name: Auto Release – wysiwyg-rails
 
 on:
-  repository_dispatch:
-    types: [version_update]
+  pull_request:
+    types: [closed]
+    branches:
+      - master
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # Run only when PR is merged
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     steps:
       # --------------------------------------------
-      # Load version & release notes from primary repo
+      # Validate release intent
       # --------------------------------------------
-      - name: Load version & notes
+      - name: Validate release intent
+        id: intent
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body  = context.payload.pull_request.body || '';
+            const title = context.payload.pull_request.title || '';
+            const text  = `${title}\n${body}`;
+
+            core.setOutput(
+              'release',
+              /release:\s*yes/i.test(text) ? 'true' : 'false'
+            );
+
+      - name: Stop if not a release PR
+        if: steps.intent.outputs.release == 'false'
         run: |
-          VERSION="${{ github.event.client_payload.version }}"
-          NOTES="${{ github.event.client_payload.release_notes }}"
-
-          VERSION="${VERSION//,/\.}"
-
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version format: $VERSION"
-            exit 1
-          fi
-
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-          echo "$NOTES" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo "ℹ️ Not a release PR. Skipping auto-release."
+          exit 0
 
       # --------------------------------------------
-      # Checkout code
+      # Checkout merged code
       # --------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -50,13 +57,48 @@ jobs:
           ruby-version: '3.1'
 
       # --------------------------------------------
+      # Read version from version.rb (single source)
+      # --------------------------------------------
+      - name: Read version from version.rb
+        run: |
+          VERSION=$(ruby -e "require './lib/wysiwyg-rails/version'; puts WYSIWYG::Rails::VERSION")
+
+          if [ -z "$VERSION" ]; then
+            echo "❌ Failed to read version from version.rb"
+            exit 1
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "✅ Releasing version $VERSION"
+
+      # --------------------------------------------
+      # Prepare clean release notes
+      # --------------------------------------------
+      - name: Prepare release notes
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          CLEAN_NOTES=$(echo "$PR_BODY" | sed \
+            -e '/^release:\s*/Id' \
+            -e '/^## Release Notes.*$/Id')
+
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          echo "$CLEAN_NOTES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      # --------------------------------------------
       # Build gem
       # --------------------------------------------
       - name: Build gem
         run: gem build wysiwyg-rails.gemspec
 
       # --------------------------------------------
-      # Create GitHub Release (PRIMARY NOTES ONLY)
+      # Create GitHub Release (UI-perfect)
       # --------------------------------------------
       - name: Create GitHub Release
         env:
@@ -65,5 +107,5 @@ jobs:
           gh release create "v${VERSION}" \
             --title "Release ${VERSION}" \
             --notes "$RELEASE_NOTES" \
-            --generate-notes=false \
+            --latest \
             *.gem
